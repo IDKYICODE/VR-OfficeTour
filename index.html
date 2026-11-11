@@ -29,6 +29,9 @@
     #spots button:hover, #spots button:focus-visible { border-color:var(--accent); outline:none; }
     #hint { margin:0; font-size:12px; color:var(--muted); text-align:center; }
     body.vr #hud { display:none; }
+    #stick { position:fixed; left:max(22px, env(safe-area-inset-left)); bottom:118px; width:124px; height:124px; border-radius:50%; z-index:11; display:none; touch-action:none; background:rgba(14,18,20,.35); border:1px solid rgba(232,201,160,.4); backdrop-filter:blur(4px); }
+    #stick i { position:absolute; left:50%; top:50%; width:54px; height:54px; margin:-27px 0 0 -27px; border-radius:50%; background:rgba(232,201,160,.8); transform:translate(var(--x,0px), var(--y,0px)); pointer-events:none; }
+    body.touch.ready:not(.vr) #stick { display:block; }
     #dbg { position:fixed; top:8px; left:8px; z-index:30; margin:0; padding:8px 10px; background:rgba(0,0,0,.7); color:#9fe3a8; font:11px/1.35 ui-monospace, Consolas, monospace; max-width:92vw; white-space:pre-wrap; pointer-events:none; }
     @media (max-width:560px) { #hint { display:none; } }
   </style>
@@ -39,6 +42,7 @@
     <div id="lbar"><i></i></div>
     <p id="lmsg">Preparing the office…</p>
   </div>
+  <div id="stick" aria-label="Walk joystick"><i></i></div>
   <div id="hud">
     <div id="spots"></div>
     <p id="hint">Drag to look · WASD or left stick to walk · aim at a ring and press Enter / A to teleport · 1–7 jump to a spot</p>

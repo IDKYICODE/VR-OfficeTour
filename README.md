@@ -18,7 +18,10 @@ VR on a phone needs HTTPS.
 |---|---|
 | Head / drag | look (movement follows where you look) |
 | Left stick, d-pad, WASD, arrows | walk (1.5 m/s, walls and furniture block you) |
-| Aim at a ring, then A / Enter / Space / tap | teleport (fade-blink) |
+| Phone, no headset: drag the screen | look (and tilt the phone, it follows the gyro) |
+| Phone, no headset: left on-screen joystick | walk, faster the further you push |
+| Phone / mouse: tap a ring or its label | teleport (fade-blink) |
+| In the headset: aim at a ring, then A / Enter / Space / the shell's touch button | teleport |
 | 1–7 or the on-screen chips | jump to a spot |
 
 `?debug=1` shows fps, draw calls, triangles and every axis/button/key the remote sends.

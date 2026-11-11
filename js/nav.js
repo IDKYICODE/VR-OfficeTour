@@ -48,7 +48,11 @@
       });
       window.addEventListener('keyup', (e) => (this.keys[e.code] = false));
       window.addEventListener('blur', () => (this.keys = {}));
-      window.addEventListener('click', (e) => { if (this.ready && !e.target.closest('#hud')) this.confirm(); });
+      // in the headset the touch button on the shell sends a click: confirm the gazed ring. Outside VR taps pick directly (see tap()).
+      window.addEventListener('click', (e) => { if (this.ready && this.el.sceneEl.is('vr-mode') && !e.target.closest('#hud')) this.confirm(); });
+      this.touchUI = 'ontouchstart' in window || navigator.maxTouchPoints > 0 || /[?&]touch/.test(location.search);
+      if (this.touchUI) document.body.classList.add('touch');
+      this.touch = { x: 0, y: 0 }; this._ndc = new T.Vector2();
       const sceneEl = this.el.sceneEl;
       sceneEl.addEventListener('enter-vr', () => document.body.classList.add('vr'));
       sceneEl.addEventListener('exit-vr', () => document.body.classList.remove('vr'));
@@ -79,8 +83,12 @@
         const bc = new T.Mesh(new T.CylinderGeometry(0.16, 0.3, 1.3, 24, 1, true), bm); bc.position.y = 0.66;
         const sp = new T.Sprite(new T.SpriteMaterial({ map: label(s.name), transparent: true, depthWrite: false, fog: false }));
         sp.scale.set(0.8, 0.2, 1); sp.position.y = 1.5;
-        const hit = new T.Mesh(new T.CylinderGeometry(0.55, 0.55, 1.9, 12), new T.MeshBasicMaterial({ visible: false })); hit.position.y = 0.95; hit.userData.i = i;
-        g.add(disc, ring, bc, sp, hit); this.markers.add(g); this.hits.push(hit);
+        // pick targets: a flat disc on the floor (rings in a line of sight don't block each other), a thin pole, and the label
+        const inv = new T.MeshBasicMaterial({ visible: false });
+        const hitDisc = new T.Mesh(new T.CircleGeometry(0.6, 20).rotateX(-Math.PI / 2), inv); hitDisc.position.y = 0.03;
+        const hitPole = new T.Mesh(new T.CylinderGeometry(0.22, 0.22, 1.6, 10), inv); hitPole.position.y = 0.8;
+        hitDisc.userData.i = hitPole.userData.i = sp.userData.i = i;
+        g.add(disc, ring, bc, sp, hitDisc, hitPole); this.markers.add(g); this.hits.push(hitDisc, hitPole, sp);
         g.userData = { ring, ringMat, beamMat: bm, sp, s };
       });
       sceneEl.object3D.add(this.markers);
@@ -89,11 +97,54 @@
       const box = document.getElementById('spots');
       if (box) { box.innerHTML = ''; world.spots.forEach((s, i) => { const b = document.createElement('button'); b.textContent = (i + 1) + '  ' + s.name; b.onclick = () => this.go(i); box.appendChild(b); }); }
 
+      this._ray.camera = this.cam.getObject3D('camera'); // sprites need it for picking
+      this.setupTouch(sceneEl);
+
       if (OV.Q && OV.Q.debug) { this.dbg = document.createElement('pre'); this.dbg.id = 'dbg'; document.body.appendChild(this.dbg); }
       this.place(world.spots[0]);
       this.ready = true;
       document.body.classList.add('ready');
       sceneEl.emit('nav-ready');
+    },
+
+    // phone / mouse without a headset: on-screen joystick walks, a tap on a ring teleports, dragging looks (look-controls)
+    setupTouch(sceneEl) {
+      const hint = document.getElementById('hint');
+      if (this.touchUI && hint) hint.textContent = 'Drag to look · left joystick to walk · tap a ring or a place name to teleport';
+      const stick = document.getElementById('stick');
+      if (stick) {
+        const knob = stick.firstElementChild, RR = 44; let id = null;
+        const set = (e) => {
+          const b = stick.getBoundingClientRect();
+          let dx = e.clientX - (b.left + b.width / 2), dy = e.clientY - (b.top + b.height / 2);
+          const d = Math.hypot(dx, dy); if (d > RR) { dx *= RR / d; dy *= RR / d; }
+          knob.style.setProperty('--x', dx + 'px'); knob.style.setProperty('--y', dy + 'px');
+          this.touch.x = dx / RR; this.touch.y = dy / RR;
+        };
+        const end = (e) => {
+          if (e.pointerId !== id) return;
+          id = null; this.touch.x = this.touch.y = 0; knob.style.setProperty('--x', '0px'); knob.style.setProperty('--y', '0px');
+        };
+        stick.addEventListener('pointerdown', (e) => { id = e.pointerId; try { stick.setPointerCapture(id); } catch (_) {} set(e); e.preventDefault(); });
+        stick.addEventListener('pointermove', (e) => { if (e.pointerId === id) set(e); });
+        stick.addEventListener('pointerup', end); stick.addEventListener('pointercancel', end);
+      }
+      const cv = sceneEl.canvas; let down = null;
+      cv.style.touchAction = 'none';
+      cv.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId }; });
+      cv.addEventListener('pointerup', (e) => {
+        if (!down || e.pointerId !== down.id) return;
+        const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y), dt = performance.now() - down.t; down = null;
+        if (moved < 12 && dt < 400) this.tap(e.clientX, e.clientY);
+      });
+    },
+
+    tap(x, y) {
+      if (this.fadeDir !== 0 || this.el.sceneEl.is('vr-mode')) return;
+      const r = this.el.sceneEl.canvas.getBoundingClientRect();
+      this._ndc.set(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1);
+      this._ray.setFromCamera(this._ndc, this._ray.camera); this._ray.far = 30;
+      for (const h of this._ray.intersectObjects(this.hits, false)) if (h.object.parent.visible) { this.go(h.object.userData.i); return; }
     },
 
     place(s) {
@@ -124,6 +175,7 @@
         if (b[0] && b[0].pressed) confirm = true;
         this.padInfo += `pad ${p.index} "${p.id.slice(0, 40)}" map=${p.mapping || '-'} axes=[${Array.from(p.axes, (v) => v.toFixed(2))}] btn=[${Array.from(b, (x, j) => (x.pressed ? j : '')).join('')}]\n`;
       }
+      if (Math.hypot(this.touch.x, this.touch.y) > 0.12) { ix += this.touch.x; iz -= this.touch.y; }
       const len = Math.hypot(ix, iz); if (len > 1) { ix /= len; iz /= len; }
       return { ix, iz, confirm };
     },
@@ -198,6 +250,7 @@
         u.ring.scale.setScalar(on ? 1.22 : pulse); u.ringMat.opacity = on ? 1 : 0.7;
         u.beamMat.opacity = on ? 0.42 : 0.2; u.sp.scale.set(on ? 1.0 : 0.8, on ? 0.25 : 0.2, 1);
       });
+      this.ret.visible = this.el.sceneEl.is('vr-mode') || !this.touchUI; // a centre dot is noise on a touch screen
       this.retMat.color.set(tgt >= 0 ? 0xffc477 : 0xffffff);
       this.ret.scale.setScalar(tgt >= 0 ? 1.8 : 1);
 
