@@ -23,6 +23,11 @@ VR on a phone needs HTTPS.
 | Phone / mouse: tap a ring or its label | teleport (fade-blink) |
 | In the headset: aim at a ring, then A / Enter / Space / the shell's touch button | teleport |
 | 1–7 or the on-screen chips | jump to a spot |
+| Tap a chair badge (or aim + A / Enter) | sit; look around seated. Push the stick, press A, or tap "Stand up" to get up |
+| Tap the bulb badge by the entrance | lights on / off (fades) |
+| Tap the play badge above the meeting-room TV | next slide (3 slides) |
+
+Badges only show when you are close enough, and you cannot tap through walls.
 
 `?debug=1` shows fps, draw calls, triangles and every axis/button/key the remote sends.
 That is how to find out what the Irusu remote reports.

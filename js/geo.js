@@ -58,7 +58,7 @@
 
   class Group {
     constructor(batch, ox, oz, ry) {
-      this.b = batch;
+      this.b = batch; this.ox = ox; this.oz = oz; this.ry = ry || 0;
       this.M = new T.Matrix4().makeRotationY(ry || 0).setPosition(ox, 0, oz);
     }
     geo(key, g, lx, ly, lz, o) {
@@ -84,7 +84,7 @@
   }
 
   class Batch {
-    constructor() { this.map = {}; this.colliders = []; this.w = this.group(0, 0, 0); }
+    constructor() { this.map = {}; this.colliders = []; this.seats = []; this.w = this.group(0, 0, 0); }
     group(ox, oz, ry) { return new Group(this, ox, oz, ry); }
     add(key, g, tile, rot) {
       if (tile) worldUV(g, tile, rot);

@@ -182,6 +182,34 @@
     return toTex(c, true, false);
   }
 
+  // extra TV slides, painted at runtime (cheap, they are mostly flat shapes)
+  OV.makeSlides = function () {
+    const mk = (draw) => {
+      const c = canvasOf(1024, 576), x = c.getContext('2d');
+      const g = x.createLinearGradient(0, 0, 1024, 576); g.addColorStop(0, '#12383c'); g.addColorStop(1, '#1d5a60');
+      x.fillStyle = g; x.fillRect(0, 0, 1024, 576); draw(x); return toTex(c, true, false);
+    };
+    const pill = (x, px, py, w, text, fill) => {
+      x.fillStyle = fill; x.beginPath(); x.roundRect(px, py, w, 64, 32); x.fill();
+      x.fillStyle = '#12383c'; x.font = '600 30px Helvetica, Arial, sans-serif'; x.textBaseline = 'middle'; x.fillText(text, px + 28, py + 33);
+    };
+    const welcome = mk((x) => {
+      x.fillStyle = '#f3efe8'; x.font = '700 84px Helvetica, Arial, sans-serif'; x.fillText('Welcome', 70, 170);
+      x.fillStyle = '#b8d7da'; x.font = '400 36px Helvetica, Arial, sans-serif'; x.fillText('to Lumen Studio', 74, 232);
+      pill(x, 74, 320, 300, 'Reception', '#e8c9a0'); pill(x, 74, 400, 420, 'Open workspace', '#e8c9a0'); pill(x, 74, 480, 380, 'Meeting room', '#e8c9a0');
+    });
+    const plan = mk((x) => {
+      x.fillStyle = '#f3efe8'; x.font = '700 52px Helvetica, Arial, sans-serif'; x.fillText('Floor plan', 60, 90);
+      const ox = 72, oy = 130, s = 44; // 1 m = 44 px
+      [['Reception', 0, 6, '#2b7a82'], ['Open workspace', 6, 14, '#4f9aa3'], ['Meeting room', 14, 20, '#b4573b']].forEach(([n, a, b, col]) => {
+        x.fillStyle = col; x.fillRect(ox + a * s + 2, oy + 2, (b - a) * s - 4, 10 * s - 4);
+        x.fillStyle = '#f3efe8'; x.font = '600 28px Helvetica, Arial, sans-serif'; x.textBaseline = 'alphabetic'; x.fillText(n, ox + a * s + 16, oy + 44);
+      });
+      x.fillStyle = '#12383c'; x.fillRect(ox + 6 * s - 6, oy + 4.2 * s, 12, 1.6 * s); x.fillRect(ox + 14 * s - 6, oy + 4.4 * s, 12, 1.2 * s);
+    });
+    return [welcome, plan];
+  };
+
   function art(kind) {
     const w = 512, h = 640, c = canvasOf(w, h), x = c.getContext('2d');
     if (kind === 0) {

@@ -164,6 +164,8 @@
     g.rbox(fab, 0.46, 0.5, 0.07, 0.03, 0, 0.82, -0.22, { rx: -0.1, tile: 0.16 });
     for (const sx of [-1, 1]) { g.box('black', 0.045, 0.025, 0.26, sx * 0.275, 0.7, 0); g.box('metal', 0.03, 0.17, 0.03, sx * 0.275, 0.61, 0.02); }
     g.collide(0.55, 0.55, 0, 0);
+    // sit spot: ry is the facing of the sitter; exit -1 = pull the chair back, +1 = stand up forwards
+    g.b.seats.push({ x: g.ox + Math.sin(g.ry) * 0.02, z: g.oz + Math.cos(g.ry) * 0.02, ry: g.ry, eye: 1.22, exit: -1, hy: 1.2 });
   }
 
   function sofa(g, w, fab) { // front = local +z
@@ -176,6 +178,8 @@
       const cx = -((n - 1) / 2) * cw + i * cw;
       g.rbox(fab, cw - 0.02, 0.16, 0.7, 0.06, cx, 0.46, 0.1, { tile: 0.16 });
       g.rbox(fab, cw - 0.02, 0.4, 0.17, 0.07, cx, 0.66, -0.2, { rx: -0.16, tile: 0.16 });
+      const sp = new T.Vector3(cx, 0, 0.1).applyMatrix4(g.M);
+      g.b.seats.push({ x: sp.x, z: sp.z, ry: g.ry, eye: 1.12, exit: 1, hy: 0.95 });
     }
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.cyl('walnut', 0.025, 0.02, 0.12, sx * (w / 2 - 0.1), 0.06, sz * 0.36, { seg: 8 });
     g.collide(w + 0.05, 1.0, 0, 0);
@@ -279,6 +283,8 @@
     ct.cyl('pot', 0.07, 0.05, 0.16, -0.18, 0.5, -0.1, { seg: 14 });
     B.blob(4.0, 2.4, 1.5, 1.5);
     pendantDrum(B, 4.0, 2.4, 1.85, 0.32);
+    // light switch by the entrance
+    w.box('trim', 0.09, 0.13, 0.015, 4.1, 1.3, 0.0075); w.box('black', 0.03, 0.05, 0.012, 4.1, 1.3, 0.021);
     // art + plants
     artwork(B.group(5.925, 2.4, -Math.PI / 2), 'art0', 1.2, 1.5, 0, 1.75, 0);
     artwork(B.group(1.2, 0, 0), 'art1', 0.9, 1.1, 0, 1.6, 0);
@@ -370,7 +376,7 @@
   OV.SUN_DIR = new T.Vector3(-0.45, 0.55, 0.7).normalize();
 
   function addLights(root, Q) {
-    root.add(new T.HemisphereLight(0xdfeaff, 0x9a8470, 0.5));
+    const hemi = new T.HemisphereLight(0xdfeaff, 0x9a8470, 0.5); root.add(hemi);
     const sun = new T.DirectionalLight(0xfff0d8, 3.4), tgt = new T.Vector3(10, 0, 5);
     sun.position.copy(tgt).addScaledVector(OV.SUN_DIR, 45); sun.target.position.copy(tgt);
     sun.castShadow = true; sun.shadow.mapSize.set(Q.shadow, Q.shadow);
@@ -379,8 +385,9 @@
     sun.shadow.autoUpdate = false; sun.shadow.needsUpdate = true; // static scene: render the shadow map once
     root.add(sun, sun.target);
     const pts = [[0xffe1b8, 3, 2.5, 4.5, 11, 12], [0xfff0dd, 10, 2.5, 3.2, 17, 11], [0xfff0dd, 10, 2.5, 6.8, 17, 11], [0xffe6c4, 17, 2.4, 5.2, 12, 11], [0xffe1b8, 4, 2.4, 8, 6, 8]];
-    pts.slice(0, Q.lights).forEach(([col, x, y, z, i, d]) => { const l = new T.PointLight(col, i, d, 2); l.position.set(x, y, z); root.add(l); });
-    return sun;
+    const lights = [];
+    pts.slice(0, Q.lights).forEach(([col, x, y, z, i, d]) => { const l = new T.PointLight(col, i, d, 2); l.position.set(x, y, z); root.add(l); lights.push({ light: l, base: i }); });
+    return { sun, lights, hemi };
   }
 
   // small furnished "room" rendered once into an image-based light: soft ceiling panels, a bright window, warm wall
@@ -427,8 +434,13 @@
     sky.renderOrder = -10; root.add(sky);
     const line = new T.Mesh(new T.CylinderGeometry(230, 230, 100, 64, 1, true), new T.MeshBasicMaterial({ map: tex.skyline, transparent: true, side: T.BackSide, depthWrite: false }));
     line.position.set(10, 49, 5); line.renderOrder = -5; root.add(line); // buildings fade into the haze via scene fog
-    const sun = addLights(root, Q);
-    return { root, sun, colliders: B.colliders, spots: OV.SPOTS, tris, bounds: { x0: 0, x1: W, z0: 0, z1: D } };
+    const L = addLights(root, Q);
+    // things you can tap: every seat, the light switch, the meeting-room TV
+    const hotspots = B.seats.map((s) => ({ kind: 'sit', seat: s, pos: new T.Vector3(s.x, s.hy, s.z), label: 'Sit down' }));
+    hotspots.push({ kind: 'light', pos: new T.Vector3(4.1, 1.3, 0.14), label: 'Lights on / off' });
+    hotspots.push({ kind: 'tv', pos: new T.Vector3(17, 2.3, 0.3), label: 'Next slide' });
+    const slides = [tex.tv, ...OV.makeSlides()];
+    return { root, sun: L.sun, lights: L.lights, hemi: L.hemi, mats: M, slides, hotspots, colliders: B.colliders, spots: OV.SPOTS, tris, bounds: { x0: 0, x1: W, z0: 0, z1: D } };
   };
 
   /* ---------------- A-Frame glue ---------------- */
