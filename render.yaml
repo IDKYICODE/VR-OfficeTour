@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: lumen-office-vr
+    runtime: static
+    staticPublishPath: .
+    headers:
+      - path: /assets/tex/*
+        name: Cache-Control
+        value: public, max-age=86400

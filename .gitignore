@@ -1,0 +1,5 @@
+# your real office scan and photos stay private; do not publish them
+scan/
+photos/
+.claude/
+__pycache__/
