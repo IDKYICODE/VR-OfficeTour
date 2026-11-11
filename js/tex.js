@@ -58,7 +58,37 @@
     t.anisotropy = 8;
     return t;
   }
-  const pair = (r, out, name) => { out[name] = toTex(r.col, true); out[name + 'Bump'] = toTex(r.bmp, false); };
+  OV.toTex = toTex; OV.canvasOf = canvasOf;
+  // tangent-space normal map from a height canvas (Sobel, wraps so tiles stay seamless)
+  function normalFrom(src, strength) {
+    const w = src.width, h = src.height, sd = src.getContext('2d').getImageData(0, 0, w, h).data;
+    const c = canvasOf(w, h), x = c.getContext('2d'), im = x.createImageData(w, h), d = im.data;
+    const H = (i, j) => sd[((((j % h) + h) % h) * w + (((i % w) + w) % w)) * 4];
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+      const nx = -((H(i + 1, j) - H(i - 1, j)) / 255) * strength, ny = ((H(i, j + 1) - H(i, j - 1)) / 255) * strength, l = Math.hypot(nx, ny, 1), o = (j * w + i) * 4;
+      d[o] = (nx / l * 0.5 + 0.5) * 255; d[o + 1] = (ny / l * 0.5 + 0.5) * 255; d[o + 2] = (1 / l * 0.5 + 0.5) * 255; d[o + 3] = 255;
+    }
+    x.putImageData(im, 0, 0); return c;
+  }
+  // grey roughness map from fn(u, v, x, y) -> 0..1 (three reads the green channel)
+  function roughMap(S, fn) {
+    const c = canvasOf(S, S), x = c.getContext('2d'), im = x.createImageData(S, S), d = im.data;
+    for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) { const o = (j * S + i) * 4, v = clamp01(fn(i / S, j / S, i, j)) * 255; d[o] = d[o + 1] = d[o + 2] = v; d[o + 3] = 255; }
+    x.putImageData(im, 0, 0); return c;
+  }
+  // o.n: normal strength, o.rough: fn for a roughness map (painted at half size, it is smooth)
+  const pair = (r, out, name, o) => {
+    out[name] = toTex(r.col, true); out[name + 'Normal'] = toTex(normalFrom(r.bmp, o.n), false);
+    if (o.rough) out[name + 'Rough'] = toTex(roughMap(Math.max(256, r.col.width >> 1), o.rough), false);
+  };
+  function leafTex() { // pale base with a bright midrib and slanted side veins; tinted by the material colour
+    const c = canvasOf(64, 128), x = c.getContext('2d');
+    const g = x.createLinearGradient(0, 0, 0, 128); g.addColorStop(0, '#ffffff'); g.addColorStop(1, '#cfcfcf'); x.fillStyle = g; x.fillRect(0, 0, 64, 128);
+    x.strokeStyle = 'rgba(120,120,120,0.55)'; x.lineWidth = 1.4;
+    for (let k = 0; k < 11; k++) { const y = 12 + k * 10; x.beginPath(); x.moveTo(32, y + 8); x.lineTo(4, y - 6); x.moveTo(32, y + 8); x.lineTo(60, y - 6); x.stroke(); }
+    x.strokeStyle = '#ffffff'; x.lineWidth = 3; x.beginPath(); x.moveTo(32, 2); x.lineTo(32, 126); x.stroke();
+    return toTex(c, true, false);
+  }
 
   /* ---------- tileable surface textures ---------- */
   function concrete(S) { // polished terrazzo-ish concrete, one tile = 2 m
@@ -89,7 +119,8 @@
       const du = (u * 4) % 1, dv = (v * 4) % 1;
       const edge = Math.min(du, 1 - du, dv, 1 - dv);
       const groove = edge < 0.006 ? 0.5 : 1;
-      p[0] = 0.27 * f * groove; p[1] = 0.31 * f * groove; p[2] = 0.38 * f * groove;
+      const base = [0.27, 0.31, 0.38];
+      p[0] = base[0] * f * groove; p[1] = base[1] * f * groove; p[2] = base[2] * f * groove;
       return groove < 1 ? 0.1 : fib;
     });
   }
@@ -110,14 +141,12 @@
     });
   }
 
-  function ceilingTile(S) { // 2x2 acoustic tiles per texture, tile = 0.6 m
+  function ceilingTile(S) { // painted plasterboard: very fine orange-peel, board joints every 2.4 m (one per tile)
     return pixels(S, S, (u, v, p, x, y) => {
-      const du = (u * 2) % 1, dv = (v * 2) % 1;
-      const edge = Math.min(du, 1 - du, dv, 1 - dv);
-      let b = 0.93 + (fbm(u, v, 8, 8, 3, 4) - 0.5) * 0.06, bump = 0.7;
-      if (hash(x, y, 5) > 0.986) { b *= 0.72; bump = 0.2; }
-      if (edge < 0.008) { b *= 0.55; bump = 0; }
-      p[0] = b; p[1] = b; p[2] = b * 0.985; return bump;
+      let b = 0.94 + (fbm(u, v, 4, 4, 3, 4) - 0.5) * 0.035 + (hash(x, y, 5) - 0.5) * 0.012, bump = 0.5 + fbm(u, v, 48, 48, 2, 9) * 0.4;
+      const e = Math.min(u, 1 - u, v, 1 - v);
+      if (e < 0.0015) { b *= 0.9; bump = 0.3; }
+      p[0] = b; p[1] = b; p[2] = b * 0.99; return bump;
     });
   }
 
@@ -137,109 +166,6 @@
     });
   }
 
-  /* ---------- one-off canvases (screens, art, logo, sky, shadows) ---------- */
-  function screen(kind, w, h) {
-    const c = canvasOf(w, h), x = c.getContext('2d'), r = OV.rng(100 + kind);
-    if (kind === 0) { // code editor
-      x.fillStyle = '#1b1e2b'; x.fillRect(0, 0, w, h);
-      x.fillStyle = '#232738'; x.fillRect(0, 0, w, 20); x.fillStyle = '#161926'; x.fillRect(0, 20, 64, h);
-      const cols = ['#7aa2f7', '#bb9af7', '#9ece6a', '#e0af68', '#c0caf5', '#f7768e'];
-      for (let i = 0; i < 22; i++) {
-        let xx = 82 + Math.floor(r() * 3) * 18;
-        for (let j = 0, n = 1 + Math.floor(r() * 4); j < n; j++) {
-          const len = 18 + r() * 80; x.fillStyle = cols[Math.floor(r() * cols.length)];
-          x.fillRect(xx, 30 + i * 11.4, len, 5); xx += len + 8;
-        }
-      }
-    } else if (kind === 1) { // analytics dashboard
-      x.fillStyle = '#f2f4f8'; x.fillRect(0, 0, w, h);
-      x.fillStyle = '#1d5a60'; x.fillRect(0, 0, w, 26);
-      for (let i = 0; i < 3; i++) { x.fillStyle = '#fff'; x.fillRect(14 + i * 162, 40, 150, 62); x.fillStyle = '#1d5a60'; x.fillRect(24 + i * 162, 52, 60 + r() * 50, 8); x.fillStyle = '#b4573b'; x.fillRect(24 + i * 162, 70, 40, 18); }
-      x.fillStyle = '#fff'; x.fillRect(14, 116, 300, 160);
-      for (let i = 0; i < 12; i++) { const bh = 20 + r() * 110; x.fillStyle = i % 3 ? '#4f9aa3' : '#1d5a60'; x.fillRect(26 + i * 23, 266 - bh, 15, bh); }
-      x.fillStyle = '#fff'; x.fillRect(326, 116, 172, 160);
-      x.strokeStyle = '#b4573b'; x.lineWidth = 3; x.beginPath();
-      for (let i = 0; i <= 8; i++) { const px = 336 + i * 19, py = 240 - r() * 90; i ? x.lineTo(px, py) : x.moveTo(px, py); } x.stroke();
-    } else { // design doc
-      x.fillStyle = '#e9e6e0'; x.fillRect(0, 0, w, h);
-      x.fillStyle = '#fff'; x.fillRect(110, 12, 292, h - 24);
-      x.fillStyle = '#d9c3a5'; x.fillRect(128, 28, 256, 100);
-      x.fillStyle = '#b4573b'; x.beginPath(); x.arc(256, 78, 34, 0, 7); x.fill();
-      x.fillStyle = '#222'; x.fillRect(128, 146, 150, 9);
-      x.fillStyle = '#999'; for (let i = 0; i < 6; i++) x.fillRect(128, 168 + i * 14, 256 - r() * 90, 5);
-    }
-    return toTex(c, true, false);
-  }
-
-  function tvSlide() {
-    const c = canvasOf(1024, 576), x = c.getContext('2d');
-    const g = x.createLinearGradient(0, 0, 1024, 576); g.addColorStop(0, '#12383c'); g.addColorStop(1, '#1d5a60');
-    x.fillStyle = g; x.fillRect(0, 0, 1024, 576);
-    x.fillStyle = '#f3efe8'; x.font = '700 78px Helvetica, Arial, sans-serif'; x.fillText('Q4 Roadmap', 70, 170);
-    x.font = '400 34px Helvetica, Arial, sans-serif'; x.fillStyle = '#b8d7da'; x.fillText('Lumen Studio · Weekly sync', 74, 226);
-    const bars = [0.35, 0.55, 0.45, 0.8, 0.65, 0.95];
-    bars.forEach((b, i) => { x.fillStyle = i % 2 ? '#b4573b' : '#e8c9a0'; x.fillRect(80 + i * 140, 520 - b * 230, 96, b * 230); });
-    return toTex(c, true, false);
-  }
-
-  // extra TV slides, painted at runtime (cheap, they are mostly flat shapes)
-  OV.makeSlides = function () {
-    const mk = (draw) => {
-      const c = canvasOf(1024, 576), x = c.getContext('2d');
-      const g = x.createLinearGradient(0, 0, 1024, 576); g.addColorStop(0, '#12383c'); g.addColorStop(1, '#1d5a60');
-      x.fillStyle = g; x.fillRect(0, 0, 1024, 576); draw(x); return toTex(c, true, false);
-    };
-    const pill = (x, px, py, w, text, fill) => {
-      x.fillStyle = fill; x.beginPath(); x.roundRect(px, py, w, 64, 32); x.fill();
-      x.fillStyle = '#12383c'; x.font = '600 30px Helvetica, Arial, sans-serif'; x.textBaseline = 'middle'; x.fillText(text, px + 28, py + 33);
-    };
-    const welcome = mk((x) => {
-      x.fillStyle = '#f3efe8'; x.font = '700 84px Helvetica, Arial, sans-serif'; x.fillText('Welcome', 70, 170);
-      x.fillStyle = '#b8d7da'; x.font = '400 36px Helvetica, Arial, sans-serif'; x.fillText('to Lumen Studio', 74, 232);
-      pill(x, 74, 320, 300, 'Reception', '#e8c9a0'); pill(x, 74, 400, 420, 'Open workspace', '#e8c9a0'); pill(x, 74, 480, 380, 'Meeting room', '#e8c9a0');
-    });
-    const plan = mk((x) => {
-      x.fillStyle = '#f3efe8'; x.font = '700 52px Helvetica, Arial, sans-serif'; x.fillText('Floor plan', 60, 90);
-      const ox = 72, oy = 130, s = 44; // 1 m = 44 px
-      [['Reception', 0, 6, '#2b7a82'], ['Open workspace', 6, 14, '#4f9aa3'], ['Meeting room', 14, 20, '#b4573b']].forEach(([n, a, b, col]) => {
-        x.fillStyle = col; x.fillRect(ox + a * s + 2, oy + 2, (b - a) * s - 4, 10 * s - 4);
-        x.fillStyle = '#f3efe8'; x.font = '600 28px Helvetica, Arial, sans-serif'; x.textBaseline = 'alphabetic'; x.fillText(n, ox + a * s + 16, oy + 44);
-      });
-      x.fillStyle = '#12383c'; x.fillRect(ox + 6 * s - 6, oy + 4.2 * s, 12, 1.6 * s); x.fillRect(ox + 14 * s - 6, oy + 4.4 * s, 12, 1.2 * s);
-    });
-    return [welcome, plan];
-  };
-
-  function art(kind) {
-    const w = 512, h = 640, c = canvasOf(w, h), x = c.getContext('2d');
-    if (kind === 0) {
-      x.fillStyle = '#efe6d6'; x.fillRect(0, 0, w, h);
-      x.fillStyle = '#b4573b'; x.beginPath(); x.arc(256, 250, 150, 0, 7); x.fill();
-      x.fillStyle = '#1d5a60'; x.fillRect(0, 400, w, 240);
-      x.fillStyle = '#e8c9a0'; x.beginPath(); x.arc(256, 400, 150, Math.PI, 0); x.fill();
-      x.fillStyle = '#efe6d6'; x.fillRect(0, 440, w, 6);
-    } else if (kind === 1) {
-      x.fillStyle = '#1d5a60'; x.fillRect(0, 0, w, h);
-      for (let i = 0; i < 9; i++) { x.strokeStyle = ['#e8c9a0', '#b4573b', '#efe6d6'][i % 3]; x.lineWidth = 16; x.beginPath(); for (let k = 0; k <= 20; k++) { const px = k * 26, py = 70 + i * 62 + Math.sin(k * 0.6 + i) * 22; k ? x.lineTo(px, py) : x.moveTo(px, py); } x.stroke(); }
-    } else {
-      x.fillStyle = '#e9e2d3'; x.fillRect(0, 0, w, h);
-      const pal = ['#1d5a60', '#b4573b', '#e8c9a0', '#2b2d31', '#4f9aa3'], r = OV.rng(9);
-      for (let i = 0; i < 4; i++) for (let j = 0; j < 5; j++) { x.fillStyle = pal[Math.floor(r() * pal.length)]; if (r() > 0.25) x.fillRect(20 + i * 118, 20 + j * 120, 108, 110); }
-    }
-    return toTex(c, true, false);
-  }
-
-  function logo() {
-    const c = canvasOf(1024, 256), x = c.getContext('2d');
-    x.textBaseline = 'middle'; x.fillStyle = '#f6f1e7';
-    x.font = '800 150px Helvetica, Arial, sans-serif';
-    if (x.letterSpacing !== undefined) x.letterSpacing = '26px';
-    x.fillText('LUMEN', 40, 120);
-    x.fillStyle = '#e8c9a0'; x.font = '400 46px Helvetica, Arial, sans-serif';
-    if (x.letterSpacing !== undefined) x.letterSpacing = '20px';
-    x.fillText('STUDIO', 46, 222);
-    return toTex(c, true, false);
-  }
 
   function sky() {
     const c = canvasOf(16, 512), x = c.getContext('2d');
@@ -267,6 +193,21 @@
     return toTex(c, true, false);
   }
 
+  function clouds() { // soft cloud layer, wraps around; transparent below the horizon
+    const W = 1024, Hh = 256, c = canvasOf(W, Hh), x = c.getContext('2d'), im = x.createImageData(W, Hh), d = im.data;
+    for (let j = 0; j < Hh; j++) {
+      const v = 1 - j / Hh;
+      for (let i = 0; i < W; i++) {
+        const u = i / W, n = fbm(u, v, 6, 3, 5, 91) * 0.75 + fbm(u, v, 12, 6, 3, 17) * 0.35;
+        let a = sstep(0.5, 0.8, n) * sstep(0.42, 0.56, v) * (1 - 0.6 * sstep(0.82, 1, v));
+        const o = (j * W + i) * 4; d[o] = 246; d[o + 1] = 247; d[o + 2] = 251; d[o + 3] = a * 235;
+      }
+    }
+    x.putImageData(im, 0, 0);
+    return toTex(c, true);
+  }
+  OV.makeClouds = clouds;
+
   function blob() { // soft contact shadow: alpha only
     const S = 128, c = canvasOf(S, S), x = c.getContext('2d'), im = x.createImageData(S, S);
     for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
@@ -286,21 +227,25 @@
   }
 
   OV.makeTextures = async function (Q, step) {
+    await OV.brand.ready(); // the logo image
     const S = Q.tex, out = {}, wait = step || (async () => {});
     await wait('Floors', 0.05);
-    pair(concrete(S), out, 'concrete');
-    pair(carpet(S), out, 'carpet'); await wait('Wood', 0.2);
-    pair(wood(S, { planks: 6, light: [0.76, 0.6, 0.42], dark: [0.55, 0.4, 0.26], seed: 3, seams: true, fine: 56 }), out, 'oak');
-    pair(wood(S >> 1, { planks: 1, light: [0.8, 0.64, 0.45], dark: [0.62, 0.46, 0.3], seed: 8, seams: false, fine: 40 }), out, 'oakF');
-    pair(wood(S >> 1, { planks: 1, light: [0.4, 0.26, 0.17], dark: [0.2, 0.12, 0.08], seed: 13, seams: false, fine: 48 }), out, 'walnut');
+    // polished concrete: glossy overall, rougher where worn, with the odd scratch
+    pair(concrete(S), out, 'concrete', { n: 2.2, rough: (u, v, x, y) => 0.16 + 0.55 * Math.pow(fbm(u, v, 3, 3, 4, 41), 1.6) + (hash(x, y, 3) > 0.996 ? 0.25 : 0) });
+    pair(carpet(S), out, 'carpet', { n: 7 }); await wait('Wood', 0.2);
+    pair(wood(S, { planks: 6, light: [0.76, 0.6, 0.42], dark: [0.55, 0.4, 0.26], seed: 3, seams: true, fine: 56 }), out, 'oak', { n: 2.6, rough: (u, v) => 0.3 + 0.3 * fbm(u, v, 2, 40, 3, 5) });
+    pair(wood(S >> 1, { planks: 1, light: [0.8, 0.64, 0.45], dark: [0.62, 0.46, 0.3], seed: 8, seams: false, fine: 40 }), out, 'oakF', { n: 2.4, rough: (u, v) => 0.26 + 0.28 * fbm(u, v, 2, 36, 3, 8) });
+    pair(wood(S >> 1, { planks: 1, light: [0.4, 0.26, 0.17], dark: [0.2, 0.12, 0.08], seed: 13, seams: false, fine: 48 }), out, 'walnut', { n: 2.4, rough: (u, v) => 0.22 + 0.26 * fbm(u, v, 2, 44, 3, 13) });
     await wait('Surfaces', 0.45);
-    pair(ceilingTile(S >> 1), out, 'ceil');
-    pair(weave(256), out, 'weave');
-    const pb = plasterBump(S >> 1); out.plasterBump = toTex(pb.bmp, false);
+    pair(ceilingTile(S >> 1), out, 'ceil', { n: 1.2 });
+    pair(weave(256), out, 'weave', { n: 6 });
+    const pb = plasterBump(S >> 1); out.plasterNormal = toTex(normalFrom(pb.bmp, 3), false);
+    out.leaf = leafTex();
     await wait('Screens & art', 0.65);
-    out.screen0 = screen(0, 512, 288); out.screen1 = screen(1, 512, 288); out.screen2 = screen(2, 512, 288);
-    out.tv = tvSlide(); out.art0 = art(0); out.art1 = art(1); out.art2 = art(2); out.logo = logo();
-    out.sky = sky(); out.skyline = skyline(); out.blob = blob(); out.aoStrip = aoStrip();
+    const BR = OV.brand;
+    out.screen0 = BR.screen(0); out.screen1 = BR.screen(1); out.screen2 = BR.screen(2);
+    out.tv = BR.slide(); out.art0 = BR.art(0); out.art1 = BR.art(1); out.art2 = BR.art(2); out.logo = BR.logoTex(true); out.logoRed = BR.logoTex(false);
+    out.sky = sky(); out.skyline = skyline(); out.clouds = clouds(); out.blob = blob(); out.aoStrip = aoStrip();
     await wait('Lighting', 0.8);
     return out;
   };
@@ -308,7 +253,7 @@
   /* Bake: ?bake=1 on the local dev server (tools/serve.py) writes every generated
      texture to assets/tex/ once. Normal loads then fetch those files instead of
      spending seconds of CPU painting them (a big win on a phone). */
-  const ALPHA = new Set(['logo', 'blob', 'aoStrip', 'skyline']);
+  const ALPHA = new Set(['logo', 'logoRed', 'blob', 'aoStrip', 'skyline', 'clouds']);
   OV.bakeTextures = async function (tex) {
     const manifest = {};
     for (const [name, t] of Object.entries(tex)) {
@@ -323,6 +268,7 @@
 
   OV.loadTextures = async function (Q, step) {
     const wait = step || (async () => {});
+    await OV.brand.ready();
     if (!Q.gen) {
       try {
         const res = await fetch('assets/tex/manifest.json');
@@ -335,6 +281,8 @@
           if (m.repeat) t.wrapS = t.wrapT = T.RepeatWrapping;
           t.anisotropy = 8; out[name] = t; wait('Loading textures', 0.05 + 0.75 * (++n / names.length));
         }));
+        if (!out.clouds) out.clouds = clouds(); // added after the first bake: paint it at load until re-baked
+        if (!out.logoRed) out.logoRed = OV.brand.logoTex(false);
         return out;
       } catch (e) { console.warn('baked textures unavailable, generating:', e.message); }
     }

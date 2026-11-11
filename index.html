@@ -3,57 +3,75 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Lumen Studio · VR Office Tour</title>
-  <link rel="icon" href="data:,">
-  <meta name="description" content="Walk through a three-room office in VR. Works on a phone in a Cardboard-style headset with a Bluetooth remote.">
+  <title>IICL · VR Office Tour</title>
+  <link rel="icon" href="assets/brand/favicon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#0e1214">
+  <meta name="description" content="Walk through the IICL office in VR. Works on a phone in a Cardboard-style headset with a Bluetooth remote.">
   <script src="https://cdn.jsdelivr.net/npm/aframe@1.7.0/dist/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/webxr-polyfill@2.0.3/build/webxr-polyfill.min.js"></script>
   <script>new WebXRPolyfill();</script>
   <script src="js/tex.js"></script>
+  <script src="js/brand.js"></script>
   <script src="js/geo.js"></script>
+  <script src="js/shade.js"></script>
+  <script src="js/bake.js"></script>
   <script src="js/office.js"></script>
   <script src="js/nav.js"></script>
+  <script src="js/play.js"></script>
+  <script src="js/life.js"></script>
   <style>
     :root { --ink:#f6f1e7; --muted:#b9c6c4; --bg:#0e1214; --accent:#e8c9a0; }
     html, body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow:hidden; }
-    #loading { position:fixed; inset:0; z-index:20; display:grid; place-content:center; justify-items:center; gap:18px; background:var(--bg); transition:opacity .5s; }
+    #loading { position:fixed; inset:0; z-index:20; display:grid; place-content:center; justify-items:center; gap:14px; background:var(--bg); transition:opacity .5s; }
     body.ready #loading { opacity:0; pointer-events:none; }
-    .brand { font-weight:800; letter-spacing:.42em; font-size:34px; padding-left:.42em; }
-    .brand small { display:block; font-weight:400; font-size:12px; letter-spacing:.5em; color:var(--accent); text-align:center; margin-top:4px; }
+    #loading img { width:150px; height:auto; }
+    #loading .sub { margin:0 0 8px; font-size:12px; letter-spacing:.3em; text-transform:uppercase; color:var(--accent); }
     #lbar { width:220px; height:3px; background:#232b2e; border-radius:2px; overflow:hidden; }
     #lbar i { display:block; height:100%; width:0; background:var(--accent); transition:width .25s; }
     #lmsg { margin:0; color:var(--muted); font-size:13px; }
     #hud { position:fixed; left:0; right:0; bottom:0; z-index:10; padding:12px 84px calc(12px + env(safe-area-inset-bottom)); /* side room for the Enter-VR button */ display:flex; flex-direction:column; gap:8px; align-items:center; background:linear-gradient(transparent, rgba(8,11,12,.65)); pointer-events:none; }
-    #spots { display:flex; gap:6px; flex-wrap:wrap; justify-content:center; pointer-events:auto; }
-    #spots button { font:inherit; font-size:13px; color:var(--ink); background:rgba(14,18,20,.72); border:1px solid rgba(232,201,160,.35); border-radius:999px; padding:7px 13px; cursor:pointer; backdrop-filter:blur(6px); }
-    #spots button:hover, #spots button:focus-visible { border-color:var(--accent); outline:none; }
     #hint { margin:0; font-size:12px; color:var(--muted); text-align:center; }
     body.vr #hud { display:none; }
     #stick { position:fixed; left:max(22px, env(safe-area-inset-left)); bottom:118px; width:124px; height:124px; border-radius:50%; z-index:11; display:none; touch-action:none; background:rgba(14,18,20,.35); border:1px solid rgba(232,201,160,.4); backdrop-filter:blur(4px); }
     #stick i { position:absolute; left:50%; top:50%; width:54px; height:54px; margin:-27px 0 0 -27px; border-radius:50%; background:rgba(232,201,160,.8); transform:translate(var(--x,0px), var(--y,0px)); pointer-events:none; }
     body.touch.ready:not(.vr) #stick { display:block; }
-    #stand { display:none; font:inherit; font-size:14px; font-weight:600; color:#14181a; background:var(--accent); border:0; border-radius:999px; padding:9px 22px; cursor:pointer; pointer-events:auto; }
+    #stand, #done { display:none; font:inherit; font-size:14px; font-weight:600; color:#14181a; background:var(--accent); border:0; border-radius:999px; padding:9px 22px; cursor:pointer; pointer-events:auto; }
     body.seated #stand { display:block; }
-    body.seated #stick { display:none !important; }
+    body.drawing #done { display:block; }
+    body.seated #stick, body.drawing #stick, body.playing #stick { display:none !important; }
+    #game { position:fixed; top:10px; right:10px; z-index:12; display:none; align-items:center; gap:10px; padding:8px 8px 8px 14px; background:rgba(14,18,20,.72); border:1px solid rgba(232,201,160,.35); border-radius:999px; backdrop-filter:blur(6px); font-size:14px; }
+    body.playing:not(.vr) #game { display:flex; }
+    #game b { color:var(--accent); }
+    #game button { font:inherit; font-size:13px; color:var(--ink); background:transparent; border:1px solid rgba(232,201,160,.4); border-radius:999px; padding:5px 12px; cursor:pointer; }
+    #throw { position:fixed; right:max(24px, env(safe-area-inset-right)); bottom:130px; z-index:12; width:104px; height:104px; border-radius:50%; display:none; place-content:center; text-align:center; font:inherit; font-weight:700; font-size:15px; letter-spacing:.06em; color:#14181a; background:var(--accent); border:0; touch-action:none; user-select:none; -webkit-user-select:none; box-shadow:0 6px 22px rgba(0,0,0,.35); }
+    #throw:active { transform:scale(.95); }
+    body.playing:not(.vr) #throw { display:grid; }
+    #toast { position:fixed; left:50%; top:22%; transform:translateX(-50%); z-index:13; font-size:30px; font-weight:800; color:var(--accent); text-shadow:0 2px 14px rgba(0,0,0,.6); opacity:0; pointer-events:none; }
+    #toast.show { animation:pop 1.1s ease-out; }
+    @keyframes pop { 0% { opacity:0; transform:translate(-50%, 14px) scale(.8); } 20% { opacity:1; transform:translate(-50%, 0) scale(1.08); } 100% { opacity:0; transform:translate(-50%, -26px) scale(1); } }
     #dbg { position:fixed; top:8px; left:8px; z-index:30; margin:0; padding:8px 10px; background:rgba(0,0,0,.7); color:#9fe3a8; font:11px/1.35 ui-monospace, Consolas, monospace; max-width:92vw; white-space:pre-wrap; pointer-events:none; }
     @media (max-width:560px) { #hint { display:none; } }
   </style>
 </head>
 <body>
   <div id="loading">
-    <div class="brand">LUMEN<small>STUDIO</small></div>
+    <img src="assets/brand/iicl_logo.png" alt="IICL" width="150" height="77">
+    <p class="sub">Intelligence India.Com Limited</p>
     <div id="lbar"><i></i></div>
     <p id="lmsg">Preparing the office…</p>
   </div>
   <div id="stick" aria-label="Walk joystick"><i></i></div>
+  <div id="game">Paper toss · score <b id="gs">0</b> · best <b id="gb">0</b> <button id="quit">Quit</button></div>
+  <button id="throw">HOLD<br>THROW</button>
+  <div id="toast"></div>
   <div id="hud">
     <button id="stand">Stand up</button>
-    <div id="spots"></div>
-    <p id="hint">Drag to look · WASD or left stick to walk · aim at a ring and press Enter / A to teleport · 1–7 jump to a spot</p>
+    <button id="done">Done drawing</button>
+    <p id="hint">Drag to look · WASD or left stick to walk · aim at a ring and press Enter / A to teleport</p>
   </div>
 
   <a-scene vr-mode-ui="enabled: true" loading-screen="enabled: false" renderer="antialias: true; colorManagement: true; maxCanvasWidth: 2200; maxCanvasHeight: 2200" device-orientation-permission-ui="enabled: true">
-    <a-entity id="world" office-build></a-entity>
+    <a-entity id="world" office-build office-life></a-entity>
     <a-entity id="rig" office-nav position="3 0 1.4">
       <a-entity id="cam" camera="fov: 78; near: 0.05; far: 600" look-controls="reverseMouseDrag: false" position="0 1.6 0"></a-entity>
     </a-entity>

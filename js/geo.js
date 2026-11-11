@@ -72,7 +72,11 @@
       if (o.col) this.b.colGeo(g);
       return g;
     }
-    box(key, w, h, d, lx, ly, lz, o) { return this.geo(key, new T.BoxGeometry(w, h, d), lx, ly, lz, o); }
+    // big boxes get a vertex every ~30 cm so baked per-vertex lighting has something to interpolate
+    box(key, w, h, d, lx, ly, lz, o) {
+      const big = Math.max(w, h, d) > 0.45 && !this.b.noSub.has(key), sg = (v) => (big ? Math.min(40, Math.max(1, Math.ceil(v / 0.3 - 0.01))) : 1);
+      return this.geo(key, new T.BoxGeometry(w, h, d, sg(w), sg(h), sg(d)), lx, ly, lz, o);
+    }
     rbox(key, w, h, d, r, lx, ly, lz, o) { return this.geo(key, OV.rboxGeo(w, h, d, r, (o && o.seg) || 2), lx, ly, lz, o); }
     cyl(key, rt, rb, h, lx, ly, lz, o) { return this.geo(key, new T.CylinderGeometry(rt, rb, h, (o && o.seg) || 18), lx, ly, lz, o); }
     sph(key, r, lx, ly, lz, o) { return this.geo(key, new T.SphereGeometry(r, 14, 10), lx, ly, lz, o); }
@@ -84,7 +88,16 @@
   }
 
   class Batch {
-    constructor() { this.map = {}; this.colliders = []; this.seats = []; this.w = this.group(0, 0, 0); }
+    constructor() {
+      this.map = {}; this.colliders = []; this.seats = [];
+      this.noSub = new Set(['glass', 'frost', 'blob', 'aoStrip', 'led', 'ledUp', 'ledSpot', 'logo', 'logoRed', 'tvScreen', 'ground']); // never baked: keep them coarse
+      this.w = this.group(0, 0, 0);
+    }
+    // a subdivided flat slab (floor facing up, ceiling facing down) with ~25-30 cm vertex spacing
+    slab(key, x0, x1, z0, z1, y, up, tile, cell) {
+      const g = new T.PlaneGeometry(x1 - x0, z1 - z0, Math.ceil((x1 - x0) / cell), Math.ceil((z1 - z0) / cell));
+      g.rotateX(up ? -Math.PI / 2 : Math.PI / 2); g.translate((x0 + x1) / 2, y, (z0 + z1) / 2); this.add(key, g, tile);
+    }
     group(ox, oz, ry) { return new Group(this, ox, oz, ry); }
     add(key, g, tile, rot) {
       if (tile) worldUV(g, tile, rot);
